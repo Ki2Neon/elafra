@@ -120,6 +120,11 @@ def prepare(archive, target, profile_dir):
     print(f"Staged PDFium in {profile_dir}")
 
 
+def copy_documentation(destination):
+    shutil.copy2(ROOT / "README.md", destination / "README.md")
+    shutil.copytree(ROOT / "docs", destination / "docs")
+
+
 def write_mac_bundle(app, executable, archive, target, version, output):
     contents = app / "Contents"
     mac_os = contents / "MacOS"
@@ -128,7 +133,7 @@ def write_mac_bundle(app, executable, archive, target, version, output):
     library = stage_pdfium(
         archive, target, contents / "Frameworks", contents / "Resources" / "licenses" / "PDFium"
     )
-    shutil.copy2(ROOT / "README.md", contents / "Resources" / "README.md")
+    copy_documentation(contents / "Resources")
     with (contents / "Info.plist").open("wb") as plist:
         plistlib.dump({
             "CFBundleDevelopmentRegion": "ja",
@@ -212,7 +217,7 @@ def package(archive, target, target_dir, executable_dir, installer=False):
             bundle.mkdir()
             shutil.copy2(executable, bundle / executable_name)
             stage_pdfium(archive, target, bundle, bundle / "licenses" / "PDFium")
-            shutil.copy2(ROOT / "README.md", bundle / "README.md")
+            copy_documentation(bundle)
             if target == "win-x64":
                 if compiler is not None:
                     setup = temporary / f"{archive_name}-setup.exe"

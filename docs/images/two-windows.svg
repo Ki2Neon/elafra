@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="366" viewBox="0 0 960 366" role="img" aria-labelledby="title description" xml:lang="ja">
+  <title id="title">Elafra のプレゼンター画面と観客用画面</title>
+  <desc id="description">左のプレゼンター画面にはスライド一覧、現在スライド、カウンターが並ぶ。ページを送ると右の観客用画面にも同じPDFページが表示される。</desc>
+  <defs>
+    <symbol id="pdf-page" viewBox="0 0 320 180">
+      <rect width="320" height="180" rx="2" fill="#e1f4ef"/>
+      <path d="M0 0h320v8H0z" fill="#007363"/>
+      <path d="M0 158h320v22H0z" fill="#c8e9df"/>
+      <path d="M23 93h104v8H23zm0 18h86v8H23zm0 18h96v8H23z" fill="#54958a"/>
+      <path d="M181 136h112v-2H181z" fill="#54958a"/>
+      <path d="M190 110h18v24h-18zm27-18h18v42h-18zm27-15h18v57h-18zm27-27h18v84h-18z" fill="#007363"/>
+    </symbol>
+    <style>
+      text { font-family: 'Noto Sans JP', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif; fill: #142a38; }
+      .heading { font-weight: 700; font-size: 24px; }
+      .subtitle { font-size: 16px; fill: #40576a; }
+      .ui { font-size: 15px; font-weight: 600; }
+      .number { font-size: 15px; fill: #40576a; }
+      .accent { fill: #006456; }
+      .pdf-title { font-size: 28px; font-weight: 700; fill: #073a32; }
+    </style>
+  </defs>
+
+  <rect width="960" height="366" rx="18" fill="#f1f5f8"/>
+
+  <text x="22" y="41" class="heading">プレゼンター画面</text>
+  <text x="22" y="67" class="subtitle">手元でページ送りと時間管理</text>
+  <text x="656" y="41" class="heading">観客用画面</text>
+  <text x="656" y="67" class="subtitle">スクリーンにPDFページだけを表示</text>
+
+  <rect x="22" y="94" width="528" height="250" rx="11" fill="#fff" stroke="#8fa6b7" stroke-width="1.5"/>
+  <path d="M22 137h528" stroke="#bdcbd5"/>
+  <text x="37" y="121" class="ui">ファイル</text>
+  <text x="111" y="121" class="ui">表示</text>
+  <text x="155" y="121" class="ui">設定</text>
+  <text x="202" y="121" class="number">発表資料.pdf</text>
+  <path d="m347 110-6 6 6 6m49-12 6 6-6 6" fill="none" stroke="#40576a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="371" y="121" text-anchor="middle" class="number">2 / 3</text>
+  <rect x="410" y="103" width="126" height="25" rx="5" fill="#fff" stroke="#8fa6b7"/>
+  <rect x="422" y="112" width="8" height="8" rx="1" fill="#40576a"/>
+  <text x="438" y="121" class="ui">プレゼン終了</text>
+
+  <path d="M151 137v207m241-207v207M22 176h528" stroke="#bdcbd5"/>
+  <text x="39" y="162" class="ui">スライド一覧</text>
+  <text x="167" y="162" class="ui">現在スライド</text>
+  <text x="409" y="162" class="ui">カウンター</text>
+
+  <rect x="32" y="232" width="108" height="50" rx="6" fill="#def1eb" stroke="#00806e" stroke-width="1.5"/>
+  <rect x="40" y="187" width="72" height="40.5" rx="2" fill="#d6e4f0"/>
+  <path d="M48 201h48v5H48zm0 10h32v3H48z" fill="#4c6681"/>
+  <use href="#pdf-page" x="40" y="237" width="72" height="40.5"/>
+  <rect x="40" y="288" width="72" height="40.5" rx="2" fill="#e8e2f6"/>
+  <path d="M48 302h43v5H48zm0 10h31v3H48z" fill="#6b508b"/>
+  <text x="124" y="212" class="number">1</text>
+  <text x="124" y="262" class="ui accent">2</text>
+  <text x="124" y="313" class="number">3</text>
+
+  <rect x="152" y="177" width="239" height="166" fill="#e8edf1"/>
+  <use href="#pdf-page" x="165" y="200" width="214" height="120.375"/>
+  <text x="180" y="246" class="pdf-title" style="font-size:19px">発表資料</text>
+
+  <text x="471" y="234" text-anchor="middle" style="font-family:Consolas,monospace;font-size:27px;font-weight:700">02:35</text>
+  <rect x="408" y="252" width="126" height="27" rx="5" fill="#fff" stroke="#8fa6b7"/>
+  <text x="471" y="271" text-anchor="middle" class="ui">一時停止</text>
+  <rect x="408" y="285" width="126" height="27" rx="5" fill="#fff" stroke="#8fa6b7"/>
+  <text x="471" y="304" text-anchor="middle" class="ui">リセット</text>
+
+  <text x="603" y="202" text-anchor="middle" class="ui accent">ページ送り</text>
+  <path d="M570 222h64m-11-10 11 10-11 10" fill="none" stroke="#007363" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="656" y="94" width="282" height="250" rx="11" fill="#000" stroke="#8fa6b7" stroke-width="1.5"/>
+  <use href="#pdf-page" x="664" y="144" width="266" height="149.625"/>
+  <text x="683" y="201" class="pdf-title" style="font-size:23px">発表資料</text>
+</svg>
