@@ -2,6 +2,8 @@ name: Build Elafra
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -20,13 +22,16 @@ jobs:
             target: win-x64
           - runner: macos-15
             target: mac-arm64
+            toolchain: '1.98.1'
           - runner: macos-15-intel
             target: mac-x64
+            toolchain: '1.98.1'
           - runner: ubuntu-24.04
             target: linux-x64
     env:
       CARGO_TERM_COLOR: always
       MACOSX_DEPLOYMENT_TARGET: '15.0'
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain || '1.95.0' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -35,7 +40,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install Rust toolchain
-        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install ${{ env.RUSTUP_TOOLCHAIN }} --profile minimal --component rustfmt --component clippy
       - name: Install Ubuntu build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -52,10 +57,89 @@ jobs:
           ELAFRA_REQUIRE_PDFIUM: '1'
         run: cargo test --release --locked
       - name: Package native build
+        if: runner.os != 'Windows'
         run: python scripts/package.py package
+      - name: Package Windows installer and portable app
+        if: runner.os == 'Windows'
+        run: python scripts/package.py package --installer
+      - name: Verify Windows packages without launching Elafra
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-Item dist/elafra-*-win-x64-setup.exe
+          $archive = Get-Item dist/elafra-*-win-x64.zip
+          $installDir = Join-Path $env:RUNNER_TEMP 'elafra-installed'
+          $archiveDir = Join-Path $env:RUNNER_TEMP 'elafra-portable'
+          $arguments = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /DIR="' + $installDir + '"'
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer exited with status $($process.ExitCode)" }
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $archiveDir
+          $portableDir = Join-Path $archiveDir $archive.BaseName
+          foreach ($file in 'elafra.exe', 'pdfium.dll', 'README.md', 'licenses/PDFium/LICENSE') {
+            $installedHash = (Get-FileHash -LiteralPath (Join-Path $installDir $file)).Hash
+            $portableHash = (Get-FileHash -LiteralPath (Join-Path $portableDir $file)).Hash
+            if ($installedHash -ne $portableHash) { throw "Package mismatch for $file" }
+          }
+          if (!(Test-Path (Join-Path $portableDir 'portable.flag') -PathType Leaf) -or
+              (Test-Path (Join-Path $installDir 'portable.flag'))) {
+            throw 'Portable marker must be present only in the ZIP package.'
+          }
       - uses: actions/upload-artifact@v7
         with:
           name: elafra-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           compression-level: 0
+
+  release:
+    name: Publish GitHub release
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: elafra-*
+          path: dist
+          merge-multiple: true
+      - name: Publish verified tag and packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; from pathlib import Path; print(tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"])')
+          if [[ "$RELEASE_TAG" != "v$version" ]]; then
+            echo "::error::Release tag must match v$version in Cargo.toml."
+            exit 1
+          fi
+
+          base="dist/elafra-$version"
+          packages=(
+            "$base-win-x64-setup.exe"
+            "$base-win-x64.zip"
+            "$base-mac-arm64.zip"
+            "$base-mac-x64.zip"
+            "$base-linux-x64.tar.gz"
+          )
+          for package in "${packages[@]}"; do
+            if [[ ! -s "$package" ]]; then
+              echo "::error::Missing release package $package."
+              exit 1
+            fi
+          done
+
+          release_flags=()
+          if [[ "${version%%+*}" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes --title "Elafra $RELEASE_TAG" "${release_flags[@]}" \
+            "${packages[0]}#Windows x64 installer" \
+            "${packages[1]}#Windows x64 portable" \
+            "${packages[@]:2}"

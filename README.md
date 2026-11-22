@@ -26,11 +26,13 @@ PDFを手元で操作し、別ウィンドウへ投影するデスクトップ�
 
 | OS | 配布形式 | 実行環境 |
 | --- | --- | --- |
-| Windows x64 | ZIP | Windows 10 22H2 または Windows 11。展開先の `elafra.exe` を起動 |
+| Windows x64 | インストーラー EXE、ポータブル ZIP | Windows 10 22H2 または Windows 11 |
 | macOS Apple Silicon／Intel | ZIP | macOS 15以降。CPUに対応する ZIP を展開し、`Elafra.app` を起動 |
 | Linux x64 | tar.gz | Ubuntu 24.04。展開先の `elafra` を起動 |
 
 Windows の実行には Visual C++ v14 Redistributable (x64) が必要。 [Microsoft のダウンロードページ](https://learn.microsoft.com/ja-jp/cpp/windows/latest-supported-vc-redist)
+
+Windows の `-setup.exe` はユーザー単位でインストールし、スタートメニューに Elafra を追加する。ポータブル版は書き込み可能なフォルダーに展開して `elafra.exe` を起動する。ポータブル版の設定と履歴は展開先の `settings.json` に保存する。
 
 Linux は X11 または XWayland と Vulkan 対応ドライバーを使用する。Ubuntu で実行時ライブラリが入っていない場合は `sudo apt install libxcb1 libxkbcommon0 libxkbcommon-x11-0` で導入する。ファイル選択にはデスクトップ環境に対応する XDG Desktop Portal を使う。Ubuntu GNOME の場合は `xdg-desktop-portal-gnome`、ファイル選択の代替には `zenity` をインストールする。
 
@@ -38,7 +40,7 @@ macOS のバンドルは起動用のアドホック署名を付けて配布す�
 
 ## ビルドと配布
 
-Rust 1.95.0 と Python 3.11 以降を使用する。Windows は MSVC ツールチェーン、Visual Studio 2022 の C++ デスクトップ開発と Windows SDK、PATH 上の CMake が必要。macOS は Xcode Command Line Tools が必要。 [GPUI Kit の要件](https://gpui-kit.com/docs/installation/)
+Rust 1.95.0 と Python 3.11 以降を使用する。Windows は MSVC ツールチェーン、Visual Studio 2022 の C++ デスクトップ開発と Windows SDK、PATH 上の CMake が必要。macOS は Xcode Command Line Tools と Rust 1.98.1 が必要。macOS では `rustup toolchain install 1.98.1 --component rustfmt` で追加し、ビルドやテストに `RUSTUP_TOOLCHAIN=1.98.1` を指定する。 [GPUI Kit の要件](https://gpui-kit.com/docs/installation/)
 
 Ubuntu 24.04 のビルド依存をインストールする。
 
@@ -64,6 +66,10 @@ python scripts/package.py package
 ```
 
 ネイティブのリリースビルドを `dist/` に生成する。スクリプトは PDFium `8125` の配布元のアーカイブを取得し、固定の SHA-256 を検証してライブラリとライセンスを同梱する。CI は4ターゲットでテストと配布物生成を行い、成果物を GitHub Actions に添付する。 [PDFium 8125](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8125)
+
+Windows でインストーラーも生成するには Inno Setup 6 を用意し、`python scripts/package.py package --installer` を実行する。
+
+`Cargo.toml` と一致するバージョンタグ（例 `v0.1.0`）をプッシュすると、GitHub Actions がテストとビルドを実行し、成功した配布物を GitHub Releases に公開する。 [Elafra Releases](https://github.com/Ki2Neon/elafra/releases)
 
 ## GUI 検証
 

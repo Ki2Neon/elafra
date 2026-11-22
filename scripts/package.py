@@ -157,9 +157,37 @@ def linux_tar_info(info):
     return info
 
 
-def package(archive, target, target_dir, executable_dir):
+def find_inno_compiler():
+    if compiler := shutil.which("ISCC.exe"):
+        return Path(compiler)
+    for variable, folder in (("ProgramFiles(x86)", ""), ("LOCALAPPDATA", "Programs")):
+        if root := os.environ.get(variable):
+            compiler = Path(root) / folder / "Inno Setup 6" / "ISCC.exe"
+            if compiler.is_file():
+                return compiler
+    raise ValueError("Inno Setup 6 with ISCC.exe is required to build the Windows installer")
+
+
+def write_windows_installer(compiler, bundle, version, output):
+    subprocess.run(
+        [
+            compiler,
+            f"-dPackageVersion={version}",
+            f"-dBundleDir={bundle}",
+            f"-o{output.parent}",
+            f"-f{output.stem}",
+            ROOT / "scripts" / "windows-installer.iss",
+        ],
+        cwd=ROOT, check=True,
+    )
+
+
+def package(archive, target, target_dir, executable_dir, installer=False):
     with (ROOT / "Cargo.toml").open("rb") as manifest:
         version = tomllib.load(manifest)["package"]["version"]
+    if installer and target != "win-x64":
+        raise ValueError("--installer is only supported when packaging for Windows x64")
+    compiler = find_inno_compiler() if installer else None
     build_env = dict(os.environ)
     if target.startswith("mac-"):
         build_env.setdefault("MACOSX_DEPLOYMENT_TARGET", "15.0")
@@ -176,6 +204,7 @@ def package(archive, target, target_dir, executable_dir):
     with tempfile.TemporaryDirectory(dir=dist) as temporary:
         temporary = Path(temporary)
         output = temporary / f"{archive_name}{extension}"
+        setup = None
         if target.startswith("mac-"):
             write_mac_bundle(temporary / "Elafra.app", executable, archive, target, version, output)
         else:
@@ -185,6 +214,10 @@ def package(archive, target, target_dir, executable_dir):
             stage_pdfium(archive, target, bundle, bundle / "licenses" / "PDFium")
             shutil.copy2(ROOT / "README.md", bundle / "README.md")
             if target == "win-x64":
+                if compiler is not None:
+                    setup = temporary / f"{archive_name}-setup.exe"
+                    write_windows_installer(compiler, bundle, version, setup)
+                (bundle / "portable.flag").touch()
                 with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zipped:
                     for file in sorted(bundle.rglob("*")):
                         if file.is_file():
@@ -192,8 +225,10 @@ def package(archive, target, target_dir, executable_dir):
             else:
                 with tarfile.open(output, "w:gz") as zipped:
                     zipped.add(bundle, arcname=bundle.name, filter=linux_tar_info)
-        output.replace(dist / output.name)
-    print(dist / f"{archive_name}{extension}")
+        for artifact in (output, setup):
+            if artifact is not None:
+                destination = artifact.replace(dist / artifact.name)
+                print(destination)
 
 
 def main():
@@ -201,7 +236,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     stage = commands.add_parser("prepare", help="copy PDFium for local Cargo run and test")
     stage.add_argument("--profile", choices=["debug", "release"], default="debug")
-    commands.add_parser("package", help="build the release and create a native archive in dist/")
+    bundle = commands.add_parser("package", help="build the release and create a native archive in dist/")
+    bundle.add_argument("--installer", action="store_true", help="also build the Windows installer")
     args = parser.parse_args()
 
     try:
@@ -215,7 +251,7 @@ def main():
         if args.command == "prepare":
             prepare(archive, target, profiles_dir / args.profile)
         else:
-            package(archive, target, target_dir, profiles_dir / "release")
+            package(archive, target, target_dir, profiles_dir / "release", installer=args.installer)
     except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Packaging failed: {error}\n")
 

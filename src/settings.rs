@@ -220,9 +220,26 @@ fn settings_path() -> Result<PathBuf, SettingsError> {
     if let Some(directory) = std::env::var_os("ELAFRA_CONFIG_DIR").filter(|path| !path.is_empty()) {
         return Ok(PathBuf::from(directory).join("settings.json"));
     }
+    #[cfg(windows)]
+    if let Some(path) = std::env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(portable_settings_path)
+    {
+        return Ok(path);
+    }
     ProjectDirs::from("", "", "Elafra")
         .map(|project| project.config_local_dir().join("settings.json"))
         .ok_or(SettingsError::NoDirectory)
+}
+
+#[cfg(windows)]
+fn portable_settings_path(executable: &Path) -> Option<PathBuf> {
+    let directory = executable.parent()?;
+    directory
+        .join("portable.flag")
+        .is_file()
+        .then(|| directory.join("settings.json"))
 }
 
 fn load_section<T: Default + DeserializeOwned>(value: &Value, field: &str) -> T {
@@ -311,6 +328,19 @@ impl From<serde_json::Error> for SettingsError {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(windows)]
+    #[test]
+    fn portable_settings_live_beside_the_executable_only_with_a_marker() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("elafra.exe");
+        assert_eq!(portable_settings_path(&executable), None);
+        fs::write(directory.path().join("portable.flag"), []).unwrap();
+        assert_eq!(
+            portable_settings_path(&executable),
+            Some(directory.path().join("settings.json"))
+        );
+    }
 
     #[test]
     fn restores_settings_and_replaces_previous_snapshot() {
