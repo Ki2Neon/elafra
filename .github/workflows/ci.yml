@@ -1,0 +1,61 @@
+name: Build Elafra
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: win-x64
+          - runner: macos-15
+            target: mac-arm64
+          - runner: macos-15-intel
+            target: mac-x64
+          - runner: ubuntu-24.04
+            target: linux-x64
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+      - name: Install Ubuntu build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ clang libfontconfig-dev libwayland-dev \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libssl-dev libzstd-dev vulkan-validationlayers libvulkan1
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Stage PDFium for tests
+        run: python scripts/package.py prepare --profile release
+      - name: Run tests with PDFium
+        env:
+          ELAFRA_REQUIRE_PDFIUM: '1'
+        run: cargo test --release --locked
+      - name: Package native build
+        run: python scripts/package.py package
+      - uses: actions/upload-artifact@v7
+        with:
+          name: elafra-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
