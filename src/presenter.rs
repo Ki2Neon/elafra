@@ -16,8 +16,9 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     App, AppContext, Context, DisplayId, Entity, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, ParentElement, Render, Role, StatefulInteractiveElement,
-    Styled, Subscription, Task, Window, div, prelude::FluentBuilder, px,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Role, Size,
+    StatefulInteractiveElement, Styled, Subscription, Task, Window, canvas, div,
+    prelude::FluentBuilder, px,
 };
 
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
 pub(crate) struct Presenter {
     model: Entity<Presentation>,
     docks: WorkspaceDocks,
+    dock_viewport: Option<Size<Pixels>>,
     focus: FocusHandle,
     output: Option<DisplayId>,
     active_output: Option<DisplayId>,
@@ -57,17 +59,23 @@ impl Presenter {
             this.update_password_dialog(window, cx);
             cx.notify();
         });
-        let dock_subscription = cx.subscribe(&docks.area, |this, _, event: &DockEvent, cx| {
-            if matches!(event, DockEvent::LayoutChanged) {
-                let layout = this.docks.layout(cx);
-                this.model
-                    .update(cx, |model, cx| model.set_dock_layout(layout, cx));
-            }
-        });
+        let dock_subscription = cx.subscribe_in(
+            &docks.area,
+            window,
+            |this, _, event: &DockEvent, window, cx| {
+                if matches!(event, DockEvent::LayoutChanged) {
+                    this.docks.reflow(window, cx);
+                    let layout = this.docks.layout(cx);
+                    this.model
+                        .update(cx, |model, cx| model.set_dock_layout(layout, cx));
+                }
+            },
+        );
 
         Self {
             model,
             docks,
+            dock_viewport: None,
             focus,
             output: None,
             active_output: None,
@@ -387,9 +395,6 @@ impl Presenter {
                         PopupMenuItem::new(panel.title()).on_click(move |_, window, cx| {
                             let _ = presenter.update(cx, |this, cx| {
                                 this.docks.show(panel, window, cx);
-                                let layout = this.docks.layout(cx);
-                                this.model
-                                    .update(cx, |model, cx| model.set_dock_layout(layout, cx));
                                 cx.notify();
                             });
                         }),
@@ -421,6 +426,27 @@ impl Render for Presenter {
         let border = theme.border;
         let muted = theme.muted_foreground;
         let danger = theme.danger;
+        let presenter = cx.weak_entity();
+        let dock_viewport = self.dock_viewport;
+        let measure_docks = canvas(
+            move |bounds, window, cx| {
+                let size = bounds.size;
+                if dock_viewport != Some(size) {
+                    window.defer(cx, move |window, cx| {
+                        let _ = presenter.update(cx, |this, cx| {
+                            if this.dock_viewport != Some(size) {
+                                this.dock_viewport = Some(size);
+                                this.docks.resize(size, window, cx);
+                                cx.notify();
+                            }
+                        });
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset_0();
 
         div()
             .id("presenter")
@@ -583,19 +609,29 @@ impl Render for Presenter {
                     ),
             )
             .when_some(notice, |root, notice| {
+                let detail = notice.clone();
                 root.child(
                     div()
+                        .h(px(36.))
                         .flex_none()
                         .flex()
-                        .justify_between()
                         .items_center()
                         .gap_4()
-                        .py_1()
                         .px_4()
                         .bg(danger.opacity(0.10))
                         .text_sm()
                         .text_color(foreground)
-                        .child(notice)
+                        .child(
+                            div()
+                                .id("notice-detail")
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(detail.clone()).build(window, cx)
+                                })
+                                .child(notice),
+                        )
                         .child(
                             Button::new("dismiss-notice")
                                 .ghost()
@@ -611,9 +647,11 @@ impl Render for Presenter {
                 div()
                     .relative()
                     .flex_1()
+                    .min_w_0()
                     .min_h_0()
                     .overflow_hidden()
-                    .child(self.docks.area.clone()),
+                    .child(self.docks.area.clone())
+                    .child(measure_docks),
             )
     }
 }

@@ -80,7 +80,8 @@ fn main() {
             WindowOptions {
                 app_id: Some(APP_ID.into()),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(560.), px(380.))),
+                // Keep three stacked dock panes visible alongside the toolbar and notice.
+                window_min_size: Some(size(px(560.), px(440.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Elafra — プレゼンター".into()),
                     appears_transparent: false,

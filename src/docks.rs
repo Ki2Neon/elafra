@@ -7,8 +7,8 @@ use gpui_kit::{
         button::{Button, ButtonVariants as _},
         dialog::{DialogAction, DialogClose, DialogFooter},
         dock::{
-            BasePanel, DockArea, DockAreaState, DockEvent, DockLayout, DockSkin, Panel, PanelEvent,
-            PanelId, PanelInfo, PanelState, panel_handle, register_panel,
+            BasePanel, DockArea, DockAreaState, DockEvent, DockLayout, DockPlacement, DockSkin,
+            Panel, PanelEvent, PanelId, PanelInfo, PanelState, panel_handle, register_panel,
         },
         h_virtual_list,
         input::{Input, InputState},
@@ -30,6 +30,10 @@ use crate::{
     timer::TimerState,
     view_raster::{SlideViewport, slide_canvas},
 };
+
+mod proportions;
+
+use proportions::DockProportions;
 
 const LAYOUT_VERSION: usize = 1;
 
@@ -63,6 +67,8 @@ impl PanelKind {
 pub(crate) struct WorkspaceDocks {
     pub(crate) area: Entity<DockArea>,
     panels: [Entity<DockPanel>; 3],
+    proportions: DockProportions,
+    viewport_size: Size<Pixels>,
     _skin: Rc<DockSkin>,
 }
 
@@ -95,7 +101,7 @@ impl WorkspaceDocks {
             };
             let layout = DockLayout::h_split()
                 .child(tab(PanelKind::Slides), Some(px(208.)))
-                .child(tab(PanelKind::Current), None)
+                .child(tab(PanelKind::Current), Some(px(812.)))
                 .child(tab(PanelKind::Timer), Some(px(220.)));
             area.update(cx, |area, cx| area.set_center(layout, window, cx));
         }
@@ -103,7 +109,36 @@ impl WorkspaceDocks {
         Self {
             area,
             panels,
+            proportions: DockProportions::default(),
+            viewport_size: Size::default(),
             _skin: skin,
+        }
+    }
+
+    pub(crate) fn resize(&mut self, size: Size<Pixels>, window: &mut Window, cx: &mut App) {
+        self.viewport_size = size;
+        self.reflow(window, cx);
+    }
+
+    pub(crate) fn reflow(&mut self, window: &mut Window, cx: &mut App) {
+        if self.viewport_size.width <= Pixels::ZERO || self.viewport_size.height <= Pixels::ZERO {
+            return;
+        }
+        let area = self.area.read(cx);
+        let Some(tree) = area.layout(DockPlacement::Center) else {
+            return;
+        };
+        let is_visible = |id| area.panel(id).is_some_and(|panel| panel.visible(cx));
+        self.proportions.capture(tree.root(), &is_visible);
+        let changes = self
+            .proportions
+            .resize(tree.root(), self.viewport_size, &is_visible);
+        if !changes.is_empty() {
+            self.area.update(cx, |area, cx| {
+                for (id, sizes) in changes {
+                    area.set_split_sizes(id, sizes, window, cx);
+                }
+            });
         }
     }
 
@@ -128,8 +163,16 @@ impl WorkspaceDocks {
         window.refresh();
     }
 
-    pub(crate) fn layout(&self, cx: &App) -> serde_json::Value {
-        serde_json::to_value(self.area.read(cx).dump(cx)).expect("serializable dock state")
+    pub(crate) fn layout(&mut self, cx: &App) -> serde_json::Value {
+        let area = self.area.read(cx);
+        let mut state = area.dump(cx);
+        if let Some(tree) = area.layout(DockPlacement::Center) {
+            self.proportions.capture(tree.root(), &|id| {
+                area.panel(id).is_some_and(|panel| panel.visible(cx))
+            });
+            self.proportions.save(tree.root(), &mut state.center);
+        }
+        serde_json::to_value(state).expect("serializable dock state")
     }
 }
 
@@ -189,6 +232,77 @@ struct DockViewport {
 impl DockViewport {
     fn inline_controls(self) -> bool {
         self.height < 132 && self.width >= 224
+    }
+
+    fn padding(self, preferred: u32) -> u32 {
+        preferred.min(self.width.min(self.height).saturating_sub(1) / 4)
+    }
+}
+
+const TIMER_BUTTON_GAP: u32 = 4;
+const TIMER_BODY_GAP: u32 = 8;
+const TIMER_ICON_WIDTH: u32 = 24;
+const TIMER_LABEL_WIDTH: u32 = 76;
+const TIMER_METADATA_WIDTH: u32 = 96;
+const TIMER_FONT_SIZE: f32 = 30.;
+
+struct TimerLayout {
+    padding: u32,
+    inline: bool,
+    icon_only: bool,
+    button_width: u32,
+    stack_controls: bool,
+    show_metadata: bool,
+    timestamp_width: u32,
+    max_font_size: f32,
+}
+
+impl TimerLayout {
+    fn new(viewport: DockViewport) -> Self {
+        let padding = viewport.padding(8);
+        let width = viewport.width.saturating_sub(padding * 2);
+        let height = viewport.height.saturating_sub(padding * 2);
+        let inline = viewport.height < 132 && width >= 144;
+        let label_controls_width = TIMER_LABEL_WIDTH * 2 + TIMER_BUTTON_GAP;
+        let icon_only = width < label_controls_width + if inline { 120 } else { 0 };
+        let button_width = if icon_only {
+            width.clamp(1, TIMER_ICON_WIDTH)
+        } else {
+            TIMER_LABEL_WIDTH
+        };
+        let control_pair_width = button_width * 2 + TIMER_BUTTON_GAP;
+        let stack_controls = width < control_pair_width;
+        let show_metadata = if inline {
+            width >= 380 && height >= 32
+        } else {
+            width >= 72 && height >= 96
+        };
+        let timestamp_width = if inline {
+            let metadata_width = if show_metadata {
+                TIMER_METADATA_WIDTH + TIMER_BODY_GAP
+            } else {
+                0
+            };
+            width.saturating_sub(control_pair_width + metadata_width + TIMER_BODY_GAP)
+        } else {
+            width
+        };
+        Self {
+            padding,
+            inline,
+            icon_only,
+            button_width,
+            stack_controls,
+            show_metadata,
+            timestamp_width,
+            max_font_size: (height as f32 / 1.2).clamp(1., TIMER_FONT_SIZE),
+        }
+    }
+
+    fn font_size(&self, width_at_full_size: Pixels) -> Pixels {
+        let width = self.timestamp_width.saturating_sub(1) as f32;
+        let scale = width / width_at_full_size.as_f32().max(1.);
+        px((TIMER_FONT_SIZE * scale).clamp(1., self.max_font_size))
     }
 }
 
@@ -539,7 +653,7 @@ impl DockPanel {
         }
     }
 
-    fn timer(&self, cx: &App) -> AnyElement {
+    fn timer(&self, window: &Window, cx: &App) -> AnyElement {
         let presentation = self.model.read(cx);
         let snapshot = presentation.timer_snapshot();
         let projecting = presentation.is_presenting();
@@ -565,37 +679,49 @@ impl DockPanel {
         };
         let model = self.model.clone();
         let reset_model = self.model.clone();
-        let inline = self.viewport.inline_controls();
-        let icon_controls = self.viewport.width < if inline { 336 } else { 144 };
-        let show_metadata = !inline || (self.viewport.width >= 380 && self.viewport.height >= 48);
-        let reserved_width = if inline {
-            let controls = if icon_controls { 64 } else { 144 };
-            controls + if show_metadata { 108 } else { 0 }
-        } else {
-            0
-        };
-        let timestamp = snapshot.formatted();
-        let text_width = self.viewport.width.saturating_sub(16 + reserved_width);
-        let timer_font = (text_width as f32 / (timestamp.len() as f32 * 0.64)).clamp(11., 30.);
+        let layout = TimerLayout::new(self.viewport);
+        let timestamp = SharedString::from(snapshot.formatted());
+        let family = cx.theme().mono_font_family.clone();
+        let timestamp_width = window
+            .text_system()
+            .shape_line(
+                timestamp.clone(),
+                px(TIMER_FONT_SIZE),
+                &[TextRun {
+                    len: timestamp.len(),
+                    font: Font {
+                        weight: FontWeight::SEMIBOLD,
+                        ..font(family.clone())
+                    },
+                    color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                }],
+                None,
+            )
+            .width();
+        let button_width = px(layout.button_width as f32);
         let muted = cx.theme().muted_foreground;
         let controls = div()
+            .flex_none()
             .flex()
-            .flex_wrap()
-            .justify_center()
-            .max_w_full()
-            .gap_1()
-            .when(inline, |controls| controls.flex_none())
+            .when(layout.stack_controls, |controls| controls.flex_col())
+            .items_center()
+            .gap(px(TIMER_BUTTON_GAP as f32))
             .child(
                 Button::new("timer-toggle")
-                    .when(icon_controls, |button| {
+                    .primary()
+                    .small()
+                    .w(button_width)
+                    .when(layout.icon_only, |button| {
                         button
                             .icon(control_icon)
+                            .with_size(button_width)
                             .accessibility_label(control)
                             .tooltip(control)
                     })
-                    .when(!icon_controls, |button| button.label(control))
-                    .primary()
-                    .small()
+                    .when(!layout.icon_only, |button| button.label(control))
                     .disabled(!projecting || snapshot.state == TimerState::Expired)
                     .on_click(move |_, _, cx| {
                         model.update(cx, |model, cx| {
@@ -609,15 +735,17 @@ impl DockPanel {
             )
             .child(
                 Button::new("timer-reset")
-                    .when(icon_controls, |button| {
+                    .outline()
+                    .small()
+                    .w(button_width)
+                    .when(layout.icon_only, |button| {
                         button
                             .icon(IconName::Undo)
+                            .with_size(button_width)
                             .accessibility_label("リセット")
                             .tooltip("リセット")
                     })
-                    .when(!icon_controls, |button| button.label("リセット"))
-                    .outline()
-                    .small()
+                    .when(!layout.icon_only, |button| button.label("リセット"))
                     .disabled(snapshot.state == TimerState::Ready)
                     .on_click(move |_, _, cx| {
                         reset_model.update(cx, |model, cx| model.timer_reset(cx));
@@ -635,27 +763,34 @@ impl DockPanel {
                     .w_full()
                     .min_h_full()
                     .flex()
-                    .when(!inline, |body| body.flex_col())
+                    .when(!layout.inline, |body| body.flex_col())
                     .items_center()
                     .justify_center()
-                    .gap_2()
-                    .p_2()
+                    .gap(px(TIMER_BODY_GAP as f32))
+                    .p(px(layout.padding as f32))
                     .child(
                         div()
+                            .flex_none()
                             .min_w_0()
-                            .max_w_full()
-                            .text_size(px(timer_font))
+                            .max_w(px(layout.timestamp_width as f32))
+                            .text_size(layout.font_size(timestamp_width))
+                            .line_height(relative(1.15))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .font_family(cx.theme().mono_font_family.clone())
+                            .font_family(family)
                             .text_color(color)
-                            .truncate()
+                            .whitespace_nowrap()
+                            .overflow_hidden()
                             .child(timestamp),
                     )
-                    .when(show_metadata, |body| {
+                    .when(layout.show_metadata, |body| {
                         body.child(
                             div()
+                                .flex_none()
                                 .min_w_0()
                                 .max_w_full()
+                                .when(layout.inline, |metadata| {
+                                    metadata.w(px(TIMER_METADATA_WIDTH as f32))
+                                })
                                 .text_xs()
                                 .text_center()
                                 .text_color(muted)
@@ -775,11 +910,12 @@ impl DockPanel {
             return panel_message(message, cx).into_any_element();
         };
         let backdrop = rgb(0x16191f);
-        let padding = if self.viewport.width < 120 || self.viewport.height < 120 {
-            px(4.)
+        let preferred_padding = if self.viewport.width < 120 || self.viewport.height < 120 {
+            4
         } else {
-            px(12.)
+            12
         };
+        let padding = px(self.viewport.padding(preferred_padding) as f32);
         let slide = slide_canvas(
             self.model.clone(),
             SlideViewport::CurrentSlide,
@@ -820,6 +956,8 @@ impl DockPanel {
     fn empty_current(&self, cx: &App) -> AnyElement {
         let inline = self.viewport.inline_controls();
         let icon_only = self.viewport.width < 112;
+        let padding = self.viewport.padding(8);
+        let button_size = self.viewport.width.saturating_sub(2 * padding).clamp(1, 24);
         let focus = self.focus.clone();
         let open = Button::new("open-pdf-from-current-slide")
             .small()
@@ -827,6 +965,7 @@ impl DockPanel {
             .when(icon_only, |button| {
                 button
                     .icon(IconName::FolderOpen)
+                    .with_size(px(button_size as f32))
                     .accessibility_label("ファイルを開く")
                     .tooltip("ファイルを開く")
             })
@@ -847,7 +986,7 @@ impl DockPanel {
             .items_center()
             .justify_center()
             .gap_2()
-            .p_2();
+            .p(px(padding as f32));
         let content = if !inline && self.viewport.height < 88 {
             content.child(open).child(hint)
         } else {
@@ -924,9 +1063,9 @@ impl Panel for DockPanel {
 }
 
 impl Render for DockPanel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let contents = match self.kind {
-            PanelKind::Timer => self.timer(cx),
+            PanelKind::Timer => self.timer(window, cx),
             PanelKind::Slides => self.slides(cx),
             PanelKind::Current => self.current(cx),
         };
@@ -963,7 +1102,7 @@ impl Render for DockPanel {
             .min_h_0()
             .min_w_0()
             .overflow_hidden()
-            .child(contents)
+            .child(div().absolute().inset_0().overflow_hidden().child(contents))
             .child(measure)
             .context_menu(move |menu, window, cx| Self::menu(panel.clone(), menu, window, cx))
     }
@@ -1026,15 +1165,13 @@ fn slide_card(
     let selected = page == selected_page;
     let hover = cx.theme().list_hover;
     let model_for_click = model.clone();
+    let padded = geometry.card_width >= 24 && geometry.card_height >= 24;
     let card = div()
         .id(("slide-card", page))
         .flex_none()
         .w(px(geometry.card_width as f32))
         .h(px(geometry.card_height as f32))
-        .when(
-            geometry.card_width >= 24 && geometry.card_height >= 24,
-            |card| card.p_1(),
-        )
+        .when(padded, |card| card.p_1())
         .overflow_hidden()
         .cursor_pointer()
         .on_click(move |_, _, cx| {
@@ -1084,19 +1221,27 @@ fn slide_card(
             None => preview.child(panel_message("未描画", cx)),
         });
     }
+    let label = (page + 1).to_string();
+    let inset = if padded { 10 } else { 2 };
+    let label_width = geometry.card_width.saturating_sub(inset) as f32;
+    let label_height = geometry.card_height.saturating_sub(inset) as f32;
+    let label_font = (label_width / (label.len() as f32 * 0.7))
+        .min(label_height)
+        .clamp(1., 12.);
     let page_number = div()
         .flex_shrink_0()
         .min_w_0()
         .max_w_full()
         .truncate()
-        .text_xs()
+        .text_size(px(label_font))
+        .line_height(relative(1.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(if selected {
             cx.theme().foreground
         } else {
             cx.theme().muted_foreground
         })
-        .child(format!("{}", page + 1));
+        .child(label);
     card.child(content.child(page_number)).into_any_element()
 }
 
@@ -1190,7 +1335,8 @@ mod tests {
     use super::{
         DockAreaState, DockViewport, LAYOUT_VERSION, MAX_COUNTDOWN_SECONDS, PanelInfo, PanelKind,
         PanelState, Pixels, SlideList, SlideListGeometry, SlideListLayout, SlideListMode,
-        SlideListSettings, ThumbnailSize, parse_duration, px, valid_layout,
+        SlideListSettings, TIMER_BODY_GAP, TIMER_BUTTON_GAP, TIMER_METADATA_WIDTH, ThumbnailSize,
+        TimerLayout, parse_duration, px, valid_layout,
     };
 
     fn slide_settings(layout: SlideListLayout) -> SlideListSettings {
@@ -1250,6 +1396,56 @@ mod tests {
         );
         assert_eq!(squeezed.thumbnail_width, None);
         assert_eq!(squeezed.card_width, 50);
+    }
+
+    #[test]
+    fn timer_controls_and_timestamp_fit_narrow_and_short_docks() {
+        for width in [1, 25, 48, 84, 128, 162, 224, 420] {
+            for height in [12, 36, 96, 220] {
+                let layout = TimerLayout::new(DockViewport { width, height });
+                let controls_width = if layout.stack_controls {
+                    layout.button_width
+                } else {
+                    layout.button_width * 2 + TIMER_BUTTON_GAP
+                };
+                let occupied = if layout.inline {
+                    let metadata_width = if layout.show_metadata {
+                        TIMER_METADATA_WIDTH + TIMER_BODY_GAP
+                    } else {
+                        0
+                    };
+                    layout.timestamp_width + controls_width + metadata_width + TIMER_BODY_GAP
+                } else {
+                    layout.timestamp_width.max(controls_width)
+                };
+                assert!(occupied + 2 * layout.padding <= width, "{width}×{height}");
+                assert!(layout.font_size(px(144.)).as_f32() * 1.15 <= height as f32);
+            }
+        }
+    }
+
+    #[test]
+    fn timer_adapts_label_controls_and_long_timestamps() {
+        let wide = TimerLayout::new(DockViewport {
+            width: 220,
+            height: 320,
+        });
+        assert!(!wide.icon_only);
+        assert!(wide.show_metadata);
+        let narrow = TimerLayout::new(DockViewport {
+            width: 48,
+            height: 320,
+        });
+        assert!(narrow.icon_only);
+        assert!(narrow.stack_controls);
+        assert!(narrow.font_size(px(144.)) < narrow.font_size(px(90.)));
+        let short = TimerLayout::new(DockViewport {
+            width: 224,
+            height: 54,
+        });
+        assert!(short.inline);
+        assert!(!short.stack_controls);
+        assert!(short.icon_only);
     }
 
     #[test]
