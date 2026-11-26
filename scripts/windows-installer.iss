@@ -9,6 +9,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19045
+SetupIconFile=..\assets\elafra.ico
 UninstallDisplayIcon={app}\elafra.exe
 WizardStyle=modern
 Compression=lzma2

@@ -256,6 +256,8 @@ pub(crate) fn open(
     let (handle, _) = gpui_kit::open_window(
         WindowOptions {
             app_id: Some(crate::APP_ID.into()),
+            #[cfg(target_os = "linux")]
+            icon: crate::window_icon(),
             window_bounds: Some(WindowBounds::Windowed(target.window_bounds)),
             titlebar: Some(TitlebarOptions {
                 title: Some("スライド画面".into()),

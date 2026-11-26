@@ -1,6 +1,6 @@
 [package]
 name = "elafra"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.95"
 description = "A two-window PDF presentation tool"
@@ -21,9 +21,13 @@ tempfile = "3"
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
+[target.'cfg(target_os = "windows")'.build-dependencies]
+embed-resource = "3.0.12"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.24"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 raw-window-handle = "0.6"
 x11rb = { version = "0.13", features = ["randr"] }

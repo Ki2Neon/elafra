@@ -1357,12 +1357,13 @@ checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
 name = "elafra"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-channel",
  "core-graphics 0.24.0",
  "directories",
+ "embed-resource",
  "gpui-kit",
  "image",
  "pdfium-render",

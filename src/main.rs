@@ -15,6 +15,9 @@ mod slide_view;
 mod timer;
 mod view_raster;
 
+#[cfg(target_os = "linux")]
+use std::sync::Arc;
+
 use gpui_kit::{
     AppContext, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
@@ -31,6 +34,16 @@ use crate::{
 use gpui_kit::component::theme::Theme;
 
 const APP_ID: &str = "app.elafra.Elafra";
+
+#[cfg(target_os = "linux")]
+fn window_icon() -> Option<Arc<image::RgbaImage>> {
+    image::load_from_memory_with_format(
+        include_bytes!("../assets/elafra-128.png"),
+        image::ImageFormat::Png,
+    )
+    .ok()
+    .map(|icon| Arc::new(icon.into_rgba8()))
+}
 
 fn main() {
     #[cfg(target_os = "linux")]
@@ -79,6 +92,8 @@ fn main() {
         let presenter = gpui_kit::open_window(
             WindowOptions {
                 app_id: Some(APP_ID.into()),
+                #[cfg(target_os = "linux")]
+                icon: window_icon(),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 // Keep three stacked dock panes visible alongside the toolbar and notice.
                 window_min_size: Some(size(px(560.), px(440.))),

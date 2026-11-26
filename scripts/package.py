@@ -17,6 +17,7 @@ import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MAC_ICON = ROOT / "assets" / "elafra.icns"
 PDFIUM_VERSION = "8125"
 PDFIUM_RELEASE = (
     "https://github.com/bblanchon/pdfium-binaries/releases/download"
@@ -128,18 +129,21 @@ def copy_documentation(destination):
 def write_mac_bundle(app, executable, archive, target, version, output):
     contents = app / "Contents"
     mac_os = contents / "MacOS"
+    resources = contents / "Resources"
     mac_os.mkdir(parents=True)
     shutil.copy2(executable, mac_os / executable.name)
     library = stage_pdfium(
-        archive, target, contents / "Frameworks", contents / "Resources" / "licenses" / "PDFium"
+        archive, target, contents / "Frameworks", resources / "licenses" / "PDFium"
     )
-    copy_documentation(contents / "Resources")
+    copy_documentation(resources)
+    shutil.copy2(MAC_ICON, resources / MAC_ICON.name)
     with (contents / "Info.plist").open("wb") as plist:
         plistlib.dump({
             "CFBundleDevelopmentRegion": "ja",
             "CFBundleDisplayName": "Elafra",
             "CFBundleExecutable": executable.name,
             "CFBundleIdentifier": "app.elafra.Elafra",
+            "CFBundleIconFile": MAC_ICON.name,
             "CFBundleInfoDictionaryVersion": "6.0",
             "CFBundleName": "Elafra",
             "CFBundlePackageType": "APPL",
